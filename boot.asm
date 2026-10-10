@@ -1,88 +1,100 @@
-;; A tiny, working bootloader for x86 PCs. Has a few subroutines
-;; so it's slightly less useless than just printing "hello world".
-;;
-;; writeup here: http://joebergeron.io/posts/post_two.html
-;;
-;; Joe Bergeron, 2016.
-;;
-	bits 16
+[org 0x7c00]
 
-	mov ax, 07C0h
-	mov ds, ax
-	mov ax, 07E0h		; 07E0h = (07C00h+200h)/10h, beginning of stack segment.
-	mov ss, ax
-	mov sp, 2000h		; 8k of stack space.
+; Khai báo các hằng số
+%define ENDL 0x0D, 0x0A
 
-	call clearscreen
+    ; Khởi tạo các thanh ghi đoạn
+    mov ax, 0x07C0
+    mov ds, ax
 
-	push 0000h
-	call movecursor
-	add sp, 2
+    ; Khởi tạo Stack (Ngăn xếp)
+    mov ax, 0x07E0
+    mov ss, ax
+    mov sp, 0x2000
 
-	push msg
-	call print
-	add sp, 2
+    ; Dọn dẹp màn hình
+    call clearscreen
 
-	cli
-	hlt
+    ; Di chuyển con trỏ về góc trên trái (Hàng 0, Cột 0)
+    push 0      ; Cột
+    push 0      ; Hàng
+    call movecursor
+    add sp, 4
 
+    ; In chuỗi văn bản ra màn hình
+    push msg
+    call print
+    add sp, 2
+
+    ; Tắt ngắt và dừng CPU
+    cli
+    hlt
+
+; --- CÁC HÀM CON (SUBROUTINES) ---
+
+; Hàm xóa màn hình
 clearscreen:
-	push bp
-	mov bp, sp
-	pusha
+    push bp
+    mov bp, sp
+    pusha
 
-	mov ah, 07h		; tells BIOS to scroll down window
-	mov al, 00h		; clear entire window
-    	mov bh, 07h    		; white on black
-	mov cx, 00h  		; specifies top left of screen as (0,0)
-	mov dh, 18h		; 18h = 24 rows of chars
-	mov dl, 4fh		; 4fh = 79 cols of chars
-	int 10h			; calls video interrupt
+    mov ah, 0x07 ; Bios scroll down window
+    mov al, 0x00 ; Xóa toàn bộ màn hình
+    mov bh, 0x07 ; Chữ xám nền đen
+    mov cx, 0x00 ; Góc trên trái (0,0)
+    mov dx, 0x184F ; Góc dưới phải (24,79)
+    int 0x10
 
-	popa
-	mov sp, bp
-	pop bp
-	ret
+    popa
+    mov sp, bp
+    pop bp
+    ret
 
+; Hàm di chuyển con trỏ
 movecursor:
-	push bp
-	mov bp, sp
-	pusha
+    push bp
+    mov bp, sp
+    pusha
 
-	mov dx, [bp+4] 		; get the argument from the stack. |bp| = 2, |arg| = 2
-	mov ah, 02h 		; set cursor position
-	mov bh, 00h		; page 0 - doesn't matter, we're not using double-buffering
-	int 10h
+    mov dx, [bp+4] ; Hàng
+    mov cx, [bp+6] ; Cột
 
-	popa
-	mov sp, bp
-	pop bp
-	ret
+    mov ah, 0x02
+    mov bh, 0x00 ; Trang màn hình 0
+    mov dh, dl   ; Hàng
+    mov dl, cl   ; Cột
+    int 0x10
 
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+; Hàm in chuỗi ký tự (kết thúc bằng byte 0)
 print:
-	push bp
-	mov bp, sp
-	pusha
-	mov si, [bp+4]	 	; grab the pointer to the data
-	mov bh, 00h	        ; page number, 0 again
-	mov bl, 00h		; foreground color, irrelevant - in text mode
-	mov ah, 0Eh  		; print character to TTY
- .char:
-	mov al, [si]   		; get the current char from our pointer position
-	add si, 1		; keep incrementing si until we see a null char
-	or al, 0
-	je .return        	; end if the string is done
-	int 10h         	; print the character if we're not done
-	jmp .char	  	; keep looping
- .return:
-	popa
-	mov sp, bp
-	pop bp
-	ret
+    push bp
+    mov bp, sp
+    pusha
 
+    mov si, [bp+4] ; Địa chỉ chuỗi cần in
+.loop:
+    lodsb          ; Tải byte tại [SI] vào AL và tăng SI
+    cmp al, 0      ; Kiểm tra xem đã hết chuỗi chưa
+    je .done
+    mov ah, 0x0E   ; Chế độ Teletype của BIOS
+    int 0x10
+    jmp .loop
+.done:
+    popa
+    mov sp, bp
+    pop bp
+    ret
 
-msg:	db "Oh boy do I sure love assembly!", 0
+; Dữ liệu chuỗi
+msg: db "Oh boy do I sure love assembly!", ENDL, 0
 
-	times 510-($-$$) db 0
-	dw 0xAA55
+; Lấp đầy vùng trống sao cho đủ 510 bytes
+times 510 - ($ - $$) db 0
 
+; Chữ ký Boot Signature (2 bytes cuối cùng)
+dw 0xAA55
